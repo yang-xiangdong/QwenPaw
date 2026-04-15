@@ -415,9 +415,22 @@ def get_active_model_supports_multimodal() -> bool:
 def build_multimodal_hint() -> str:
     """Build a short system-prompt snippet describing multimodal capability."""
     model_info, model_name = _get_active_model_info()
-    if model_info is None:
-        return ""
-    return format_multimodal_hint(model_info, model_name)
+    multimodal_hint = ""
+    if model_info is not None:
+        multimodal_hint = format_multimodal_hint(model_info, model_name)
+
+    media_rendering_hint = (
+        "When a tool result already contains image/video/file blocks or URLs "
+        "that should be rendered directly, do not rewrite, transform, proxy, "
+        "or invent replacement links in your final answer. Reuse the exact "
+        "tool-provided media references only, and if the UI already shows the "
+        "media block, do not emit a second Markdown image link for the same "
+        "asset."
+    )
+
+    if multimodal_hint:
+        return multimodal_hint + "\n\n" + media_rendering_hint
+    return media_rendering_hint
 
 
 def format_multimodal_hint(model_info, _model_name: str) -> str:

@@ -83,5 +83,10 @@ async def generate_image(
     )
     if result.revised_prompt:
         summary += f"\nRevised prompt: {result.revised_prompt}"
+    summary += (
+        "\nUse the tool-returned image block(s) above as the final image output. "
+        "Do not rewrite the image URL, do not replace it with another CDN or "
+        "proxy URL, and do not emit a second Markdown image for the same asset."
+    )
     content.append(TextBlock(type="text", text=summary))
     return ToolResponse(content=content)
