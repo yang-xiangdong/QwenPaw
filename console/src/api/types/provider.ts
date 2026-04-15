@@ -29,6 +29,7 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  meta?: Record<string, unknown>;
 }
 
 export interface ProviderConfigRequest {
@@ -45,6 +46,7 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
+  active_image_generation?: ModelSlotConfig;
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
@@ -57,6 +59,7 @@ export interface GetActiveModelsRequest {
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
+  slot?: "llm" | "image_generation";
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
 }

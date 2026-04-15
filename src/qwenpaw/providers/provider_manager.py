@@ -9,8 +9,6 @@ from typing import Dict, List
 import logging
 import json
 
-from pydantic import BaseModel
-
 from agentscope.model import ChatModelBase
 from agentscope_runtime.engine.schemas.exception import (
     ModelNotFoundException,
@@ -20,7 +18,7 @@ from ..constant import SECRET_DIR
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
-from .models import ModelSlotConfig
+from .models import ActiveModelsInfo, ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
@@ -579,6 +577,15 @@ PROVIDER_MINIMAX = AnthropicProvider(
     freeze_url=True,
     # This provider doesn't support connection check without model config
     support_connection_check=False,
+    meta={
+        "image_generation": {
+            "enabled": True,
+            "backend": "minimax",
+            "api_base_url": "https://api.minimax.io",
+            "endpoint": "/v1/image_generation",
+            "default_model": "image-01",
+        },
+    },
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -590,6 +597,15 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
     freeze_url=True,
     # This provider doesn't support connection check without model config
     support_connection_check=False,
+    meta={
+        "image_generation": {
+            "enabled": True,
+            "backend": "minimax",
+            "api_base_url": "https://api.minimaxi.com",
+            "endpoint": "/v1/image_generation",
+            "default_model": "image-01",
+        },
+    },
 )
 
 PROVIDER_KIMI_CN = OpenAIProvider(
@@ -688,11 +704,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     require_api_key=True,
 )
 
-
-class ActiveModelsInfo(BaseModel):
-    active_llm: ModelSlotConfig | None
-
-
 class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
     including built-in and custom ones."""
@@ -706,6 +717,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.custom_providers: Dict[str, Provider] = {}
         self.plugin_providers: Dict[str, Dict] = {}  # Plugin providers
         self.active_model: ModelSlotConfig | None = None
+        self.active_image_model: ModelSlotConfig | None = None
         self.root_path = SECRET_DIR / "providers"
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
@@ -820,6 +832,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
         return self.active_model
+
+    def get_active_image_model(self) -> ModelSlotConfig | None:
+        """Return the currently active image generation model slot."""
+        return self.active_image_model
 
     def update_provider(self, provider_id: str, config: Dict) -> bool:
         # Update the configuration of a provider (e.g., base URL, API key).
@@ -952,7 +968,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return True
         return False
 
-    async def activate_model(self, provider_id: str, model_id: str):
+    async def activate_model(
+        self,
+        provider_id: str,
+        model_id: str,
+        slot: str = "llm",
+    ):
         # Set the active provider and model for the agent. This will update
         # providers.json and determine which provider/model is used when the
         # agent creates chat model instances.
@@ -968,13 +989,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_name=f"{provider_id}/{model_id}",
                 details={"provider_id": provider_id, "model_id": model_id},
             )
-        self.active_model = ModelSlotConfig(
+        slot_config = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,
         )
-        self.save_active_model(self.active_model)
-
-        self.maybe_probe_multimodal(provider_id, model_id)
+        if slot == "image_generation":
+            self.active_image_model = slot_config
+        else:
+            self.active_model = slot_config
+            self.maybe_probe_multimodal(provider_id, model_id)
+        self.save_active_models()
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
         """Schedule multimodal probing for a model if capability is unknown."""
@@ -1238,44 +1262,80 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return OllamaProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
 
-    def save_active_model(self, active_model: ModelSlotConfig):
-        """Save the active provider/model configuration to disk."""
-        active_path = self.root_path / "active_model.json"
-        with open(active_path, "w", encoding="utf-8") as f:
+    def save_active_models(self) -> None:
+        """Save all active model slots to disk."""
+        active_models = ActiveModelsInfo(
+            active_llm=self.active_model,
+            active_image_generation=self.active_image_model,
+        )
+        active_models_path = self.root_path / "active_models.json"
+        with open(active_models_path, "w", encoding="utf-8") as f:
             json.dump(
-                active_model.model_dump(),
+                active_models.model_dump(),
                 f,
                 ensure_ascii=False,
                 indent=2,
             )
         try:
-            os.chmod(active_path, 0o600)
+            os.chmod(active_models_path, 0o600)
         except OSError:
             pass
 
-    def clear_active_model(self, provider_id: str | None = None) -> bool:
+        active_path = self.root_path / "active_model.json"
+        if self.active_model is not None:
+            with open(active_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    self.active_model.model_dump(),
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            try:
+                os.chmod(active_path, 0o600)
+            except OSError:
+                pass
+        else:
+            try:
+                active_path.unlink()
+            except (FileNotFoundError, OSError):
+                pass
+
+    def save_active_model(self, active_model: ModelSlotConfig):
+        """Backward-compatible wrapper for saving the active LLM slot."""
+        self.active_model = active_model
+        self.save_active_models()
+
+    def clear_active_model(
+        self,
+        provider_id: str | None = None,
+        slot: str = "llm",
+    ) -> bool:
         """Clear the active provider/model configuration.
 
         If provider_id is provided, only clear when it matches the current
         active provider.
         """
-        if self.active_model is None:
+        active_slot = (
+            self.active_image_model
+            if slot == "image_generation"
+            else self.active_model
+        )
+        if active_slot is None:
             return False
         # Normalize provider ID for backward compatibility
         if provider_id is not None:
             provider_id = self._normalize_provider_id(provider_id)
         if (
             provider_id is not None
-            and self.active_model.provider_id != provider_id
+            and active_slot.provider_id != provider_id
         ):
             return False
 
-        self.active_model = None
-        active_path = self.root_path / "active_model.json"
-        try:
-            active_path.unlink()
-        except (FileNotFoundError, OSError):
-            pass
+        if slot == "image_generation":
+            self.active_image_model = None
+        else:
+            self.active_model = None
+        self.save_active_models()
         return True
 
     def load_active_model(self) -> ModelSlotConfig | None:
@@ -1290,6 +1350,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except Exception:
             return None
 
+    def load_active_models(self) -> ActiveModelsInfo | None:
+        """Load active model slots from disk."""
+        active_models_path = self.root_path / "active_models.json"
+        if active_models_path.exists():
+            try:
+                with open(active_models_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return ActiveModelsInfo.model_validate(data)
+            except Exception:
+                logger.warning(
+                    "Failed to load active_models.json; falling back to legacy active_model.json",
+                )
+
+        active_llm = self.load_active_model()
+        if active_llm is None:
+            return None
+        return ActiveModelsInfo(active_llm=active_llm)
+
     def _migrate_copaw_config(self) -> None:
         """Migrate copaw-local provider config to qwenpaw-local."""
         # 1. Migrate active model configuration (only provider_id)
@@ -1298,7 +1376,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             and self.active_model.provider_id == "copaw-local"
         ):
             self.active_model.provider_id = "qwenpaw-local"
-            self.save_active_model(self.active_model)
+            self.save_active_models()
             logger.info(
                 "Migrated active model provider from "
                 "'copaw-local' to 'qwenpaw-local'",
@@ -1399,7 +1477,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     self.active_model = ModelSlotConfig.model_validate(
                         active_model,
                     )
-                    self.save_active_model(self.active_model)
+                    self.save_active_models()
                 except Exception:
                     logger.warning(
                         "Failed to migrate active model, using default.",
@@ -1442,9 +1520,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             if provider:
                 self.custom_providers[provider.id] = provider
         # Load active model config
-        active_model = self.load_active_model()
-        if active_model:
-            self.active_model = active_model
+        active_models = self.load_active_models()
+        if active_models:
+            self.active_model = active_models.active_llm
+            self.active_image_model = active_models.active_image_generation
 
         # Migrate copaw-local to qwenpaw-local for backwards compatibility
         self._migrate_copaw_config()

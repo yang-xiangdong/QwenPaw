@@ -13,3 +13,4 @@ class ModelSlotConfig(BaseModel):
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
+    active_image_generation: ModelSlotConfig | None = None

@@ -79,6 +79,10 @@ class ProviderConfigRequest(BaseModel):
 class ModelSlotRequest(BaseModel):
     provider_id: str = Field(..., description="Provider to use")
     model: str = Field(..., description="Model identifier")
+    slot: Literal["llm", "image_generation"] = Field(
+        default="llm",
+        description="Which active model slot to update",
+    )
     scope: ActiveModelWriteScope = Field(
         ...,
         description="Whether to update the global model or a specific agent",
@@ -535,7 +539,10 @@ async def get_active_models(
     - agent: a specific agent's configured model only
     """
     if scope == "global":
-        return ActiveModelsInfo(active_llm=manager.get_active_model())
+        return ActiveModelsInfo(
+            active_llm=manager.get_active_model(),
+            active_image_generation=manager.get_active_image_model(),
+        )
 
     if scope == "agent":
         if not agent_id:
@@ -545,6 +552,7 @@ async def get_active_models(
             )
         return ActiveModelsInfo(
             active_llm=await _load_agent_model(request, agent_id),
+            active_image_generation=manager.get_active_image_model(),
         )
 
     try:
@@ -576,7 +584,10 @@ async def get_active_models(
 
     global_model = manager.get_active_model()
     logger.info("Returning global model: %s", global_model)
-    return ActiveModelsInfo(active_llm=global_model)
+    return ActiveModelsInfo(
+        active_llm=global_model,
+        active_image_generation=manager.get_active_image_model(),
+    )
 
 
 @router.put(
@@ -592,7 +603,11 @@ async def set_active_model(
     """Set active model by scope."""
     if body.scope == "global":
         try:
-            await manager.activate_model(body.provider_id, body.model)
+            await manager.activate_model(
+                body.provider_id,
+                body.model,
+                slot=body.slot,
+            )
         except (
             FileNotFoundError,
             RuntimeError,
@@ -604,12 +619,21 @@ async def set_active_model(
             if "provider" in lower_msg and "not found" in lower_msg:
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
-        return ActiveModelsInfo(active_llm=manager.get_active_model())
+        return ActiveModelsInfo(
+            active_llm=manager.get_active_model(),
+            active_image_generation=manager.get_active_image_model(),
+        )
 
     if not body.agent_id:
         raise HTTPException(
             status_code=400,
             detail="agent_id is required when scope is 'agent'",
+        )
+
+    if body.slot != "llm":
+        raise HTTPException(
+            status_code=400,
+            detail="Agent-scoped image generation model is not supported yet.",
         )
 
     _validate_model_slot(manager, body.provider_id, body.model)
@@ -652,6 +676,7 @@ async def set_active_model(
             provider_id=body.provider_id,
             model=body.model,
         ),
+        active_image_generation=manager.get_active_image_model(),
     )
 
 

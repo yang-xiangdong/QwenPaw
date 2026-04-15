@@ -53,7 +53,13 @@ export const providerApi = {
   setActiveLlm: (body: ModelSlotRequest) =>
     request<ActiveModelsInfo>("/models/active", {
       method: "PUT",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, slot: "llm" }),
+    }),
+
+  setActiveImageGeneration: (body: ModelSlotRequest) =>
+    request<ActiveModelsInfo>("/models/active", {
+      method: "PUT",
+      body: JSON.stringify({ ...body, slot: "image_generation" }),
     }),
 
   /* ---- Custom provider CRUD ---- */
