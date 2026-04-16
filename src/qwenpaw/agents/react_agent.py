@@ -8,6 +8,7 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
@@ -66,6 +67,11 @@ if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
+
+_MARKDOWN_IMAGE_PATTERN = re.compile(
+    r"(?:^|\n)\s*!\[[^\]]*]\([^)]+\)\s*(?=\n|$)",
+    re.MULTILINE,
+)
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
@@ -1134,6 +1140,74 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         return total_stripped
 
+    @staticmethod
+    def _tool_result_contains_image(block: dict[str, Any]) -> bool:
+        """Return True when a tool_result block output contains image blocks."""
+        output = block.get("output")
+        if not isinstance(output, list):
+            return False
+        return any(
+            isinstance(item, dict) and item.get("type") == "image"
+            for item in output
+        )
+
+    def _latest_turn_has_image_tool_result(self) -> bool:
+        """Check whether the latest user turn already produced an image."""
+        if self.memory is None or not getattr(self.memory, "content", None):
+            return False
+
+        for msg, _marks in reversed(self.memory.content):
+            content = msg.content
+            if isinstance(content, list):
+                for block in content:
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") == "tool_result"
+                        and self._tool_result_contains_image(block)
+                    ):
+                        return True
+            if msg.role == "user":
+                break
+        return False
+
+    @staticmethod
+    def _strip_markdown_images_from_text(text: str) -> str:
+        """Remove markdown image syntax and collapse excess blank lines."""
+        cleaned = _MARKDOWN_IMAGE_PATTERN.sub("\n", text)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
+    def _sanitize_duplicate_markdown_images(self, msg: Msg) -> Msg:
+        """Strip assistant markdown images when this turn already rendered images."""
+        if not self._latest_turn_has_image_tool_result():
+            return msg
+
+        content = msg.content
+        if isinstance(content, str):
+            msg.content = self._strip_markdown_images_from_text(content)
+            return msg
+
+        if not isinstance(content, list):
+            return msg
+
+        sanitized: list[Any] = []
+        for block in content:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "text"
+                and isinstance(block.get("text"), str)
+            ):
+                new_text = self._strip_markdown_images_from_text(
+                    block["text"],
+                )
+                if new_text:
+                    sanitized.append({**block, "text": new_text})
+            else:
+                sanitized.append(block)
+
+        msg.content = sanitized
+        return msg
+
     # pylint: disable=protected-access
     async def reply(
         self,
@@ -1214,10 +1288,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
+            response = await super().reply(
                 msg=msg,
                 structured_model=structured_model,
             )
+        return self._sanitize_duplicate_markdown_images(response)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
