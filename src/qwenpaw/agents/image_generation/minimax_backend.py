@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -39,6 +40,39 @@ class MiniMaxImageBackend(ImageGenerationBackend):
 
     def _default_model(self) -> str:
         return str(self._cfg.get("default_model") or "image-01")
+
+    async def _wait_until_image_urls_ready(
+        self,
+        urls: list[str],
+    ) -> list[str]:
+        """Wait briefly for upstream image URLs to become fetchable."""
+        if not urls:
+            return urls
+
+        max_attempts = int(self._cfg.get("availability_max_attempts") or 5)
+        retry_delay = float(self._cfg.get("availability_retry_delay") or 1.0)
+        ready_urls = list(urls)
+
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=True,
+        ) as client:
+            for attempt in range(max_attempts):
+                pending: list[str] = []
+                for url in ready_urls:
+                    try:
+                        response = await client.get(url)
+                        if response.status_code >= 400:
+                            pending.append(url)
+                    except httpx.HTTPError:
+                        pending.append(url)
+                if not pending:
+                    return ready_urls
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(retry_delay)
+                ready_urls = pending
+
+        return urls
 
     async def generate(
         self,
@@ -81,12 +115,16 @@ class MiniMaxImageBackend(ImageGenerationBackend):
         image_urls = data.get("data", {}).get("image_urls", [])
         if not isinstance(image_urls, list):
             image_urls = []
+        normalized_urls = [
+            str(url) for url in image_urls if isinstance(url, str)
+        ]
+        ready_urls = await self._wait_until_image_urls_ready(normalized_urls)
 
         return ImageGenerationResult(
             provider_id=self.provider.id,
             backend_name=self.name,
             model=payload["model"],
-            urls=[str(url) for url in image_urls if isinstance(url, str)],
+            urls=ready_urls,
             revised_prompt=str(
                 data.get("data", {}).get("revised_prompt", ""),
             ),
