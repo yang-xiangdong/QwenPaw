@@ -13,10 +13,11 @@ class ImageGenerationRequest:
     aspect_ratio: str = "1:1"
     n: int = 1
     model: str = ""
-    response_format: str = "url"
+    response_format: str = "base64"
     prompt_optimizer: bool = True
     size: str = ""
     quality: str = ""
+    seed: int | None = None
     extra_params: dict[str, Any] = field(default_factory=dict)
 
 

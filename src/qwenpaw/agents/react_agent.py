@@ -8,7 +8,6 @@ with integrated tools, skills, and memory management.
 import asyncio
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
@@ -67,14 +66,6 @@ if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
-
-_MARKDOWN_IMAGE_PATTERN = re.compile(
-    r"(?:^|\n)\s*!\[[^\]]*]\([^)]+\)\s*(?=\n|$)",
-    re.MULTILINE,
-)
-_BROKEN_MARKDOWN_IMAGE_START_PATTERN = re.compile(
-    r"!\[[^\]]*]\(",
-)
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
@@ -986,48 +977,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
 
         if not getattr(self, "_in_summarizing", False):
-            original = msg.content
-            modified = False
-
-            if self._latest_turn_has_image_tool_result():
-                if isinstance(original, str):
-                    sanitized = self._strip_markdown_images_from_text(
-                        original,
-                    )
-                    if sanitized != original:
-                        msg.content = sanitized
-                        modified = True
-                elif isinstance(original, list):
-                    sanitized_blocks: list[Any] = []
-                    for block in original:
-                        if (
-                            isinstance(block, dict)
-                            and block.get("type") == "text"
-                            and isinstance(block.get("text"), str)
-                        ):
-                            sanitized_text = (
-                                self._strip_markdown_images_from_text(
-                                    block["text"],
-                                )
-                            )
-                            if sanitized_text:
-                                sanitized_blocks.append(
-                                    {**block, "text": sanitized_text},
-                                )
-                                if sanitized_text != block["text"]:
-                                    modified = True
-                            else:
-                                modified = True
-                        else:
-                            sanitized_blocks.append(block)
-                    if modified:
-                        msg.content = sanitized_blocks
-
-            if modified:
-                try:
-                    return await super().print(msg, last, speech=speech)
-                finally:
-                    msg.content = original
             return await super().print(msg, last, speech=speech)
 
         original = msg.content
@@ -1351,11 +1300,10 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            response = await super().reply(
+            return await super().reply(
                 msg=msg,
                 structured_model=structured_model,
             )
-        return self._sanitize_duplicate_markdown_images(response)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""

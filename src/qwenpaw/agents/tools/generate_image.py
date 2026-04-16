@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentscope.message import ImageBlock, TextBlock
+from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...exceptions import ProviderError
@@ -16,10 +16,11 @@ async def generate_image(
     n: int = 1,
     model: str = "",
     provider_id: str = "",
-    response_format: str = "url",
+    response_format: str = "base64",
     prompt_optimizer: bool = True,
     size: str = "",
     quality: str = "",
+    seed: int | None = None,
 ) -> ToolResponse:
     """Generate images with the configured image backend.
 
@@ -52,6 +53,7 @@ async def generate_image(
                 prompt_optimizer=prompt_optimizer,
                 size=size,
                 quality=quality,
+                seed=seed,
             ),
         )
     except ProviderError as exc:
@@ -68,25 +70,17 @@ async def generate_image(
             ],
         )
 
-    content = []
-    for url in result.urls:
-        content.append(
-            ImageBlock(
-                type="image",
-                source={"type": "url", "url": url},
-            ),
-        )
+    markdown_images = []
+    for index, url in enumerate(result.urls, start=1):
+        markdown_images.append(f"![Generated image {index}]({url})")
 
-    summary = (
+    summary = "\n\n".join(markdown_images)
+    if summary:
+        summary += "\n\n"
+    summary += (
         f"Generated {len(result.urls)} image(s) via "
         f"{result.provider_id}/{result.model}."
     )
     if result.revised_prompt:
         summary += f"\nRevised prompt: {result.revised_prompt}"
-    summary += (
-        "\nUse the tool-returned image block(s) above as the final image output. "
-        "Do not rewrite the image URL, do not replace it with another CDN or "
-        "proxy URL, and do not emit a second Markdown image for the same asset."
-    )
-    content.append(TextBlock(type="text", text=summary))
-    return ToolResponse(content=content)
+    return ToolResponse(content=[TextBlock(type="text", text=summary)])

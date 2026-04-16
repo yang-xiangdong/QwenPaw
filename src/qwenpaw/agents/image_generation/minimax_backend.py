@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import httpx
@@ -41,49 +40,6 @@ class MiniMaxImageBackend(ImageGenerationBackend):
     def _default_model(self) -> str:
         return str(self._cfg.get("default_model") or "image-01")
 
-    async def _wait_until_image_urls_ready(
-        self,
-        urls: list[str],
-    ) -> list[str]:
-        """Wait briefly for upstream image URLs to become fetchable."""
-        if not urls:
-            return urls
-
-        max_attempts = int(self._cfg.get("availability_max_attempts") or 5)
-        retry_delay = float(self._cfg.get("availability_retry_delay") or 1.0)
-        ready_urls = list(urls)
-
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            follow_redirects=True,
-        ) as client:
-            for attempt in range(max_attempts):
-                pending: list[str] = []
-                for url in ready_urls:
-                    try:
-                        response = await client.get(
-                            url,
-                            headers={"Range": "bytes=0-0"},
-                        )
-                        content_type = response.headers.get(
-                            "Content-Type",
-                            "",
-                        ).lower()
-                        if (
-                            response.status_code >= 400
-                            or not content_type.startswith("image/")
-                        ):
-                            pending.append(url)
-                    except httpx.HTTPError:
-                        pending.append(url)
-                if not pending:
-                    return ready_urls
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(retry_delay)
-                ready_urls = pending
-
-        return urls
-
     async def generate(
         self,
         request: ImageGenerationRequest,
@@ -108,6 +64,8 @@ class MiniMaxImageBackend(ImageGenerationBackend):
             payload["size"] = request.size
         if request.quality:
             payload["quality"] = request.quality
+        if request.seed is not None:
+            payload["seed"] = request.seed
         payload.update(request.extra_params)
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -122,21 +80,30 @@ class MiniMaxImageBackend(ImageGenerationBackend):
             response.raise_for_status()
             data = response.json()
 
-        image_urls = data.get("data", {}).get("image_urls", [])
-        if not isinstance(image_urls, list):
-            image_urls = []
-        normalized_urls = [
-            str(url) for url in image_urls if isinstance(url, str)
-        ]
-        ready_urls = await self._wait_until_image_urls_ready(normalized_urls)
+        response_data = data.get("data", {})
+        image_payloads: list[str] = []
+        if request.response_format == "base64":
+            image_base64 = response_data.get("image_base64", [])
+            if isinstance(image_base64, list):
+                image_payloads = [
+                    f"data:image/jpeg;base64,{item}"
+                    for item in image_base64
+                    if isinstance(item, str) and item
+                ]
+        else:
+            image_urls = response_data.get("image_urls", [])
+            if isinstance(image_urls, list):
+                image_payloads = [
+                    str(url) for url in image_urls if isinstance(url, str)
+                ]
 
         return ImageGenerationResult(
             provider_id=self.provider.id,
             backend_name=self.name,
             model=payload["model"],
-            urls=ready_urls,
+            urls=image_payloads,
             revised_prompt=str(
-                data.get("data", {}).get("revised_prompt", ""),
+                response_data.get("revised_prompt", ""),
             ),
             raw_response=data if isinstance(data, dict) else {},
         )
