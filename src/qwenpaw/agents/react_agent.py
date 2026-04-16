@@ -72,6 +72,9 @@ _MARKDOWN_IMAGE_PATTERN = re.compile(
     r"(?:^|\n)\s*!\[[^\]]*]\([^)]+\)\s*(?=\n|$)",
     re.MULTILINE,
 )
+_BROKEN_MARKDOWN_IMAGE_START_PATTERN = re.compile(
+    r"!\[[^\]]*]\(",
+)
 
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
@@ -1214,8 +1217,26 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     @staticmethod
     def _strip_markdown_images_from_text(text: str) -> str:
-        """Remove markdown image syntax and collapse excess blank lines."""
+        """Remove valid or broken markdown image syntax from text."""
         cleaned = _MARKDOWN_IMAGE_PATTERN.sub("\n", text)
+
+        broken_match = _BROKEN_MARKDOWN_IMAGE_START_PATTERN.search(cleaned)
+        if broken_match:
+            prefix = cleaned[: broken_match.start()].rstrip()
+            remainder = cleaned[broken_match.end() :]
+            resume_match = re.search(
+                r'(?:(?<=\n)|(?<=[。！？!?])|(?<=[~～]))\s*'
+                r'(?:这次|如果|还需要|需要|可以|我|我们|现在|下面)',
+                remainder,
+            )
+            if resume_match:
+                suffix = remainder[resume_match.start() :].lstrip()
+                cleaned = (
+                    f"{prefix}\n\n{suffix}" if prefix and suffix else prefix or suffix
+                )
+            else:
+                cleaned = prefix
+
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 

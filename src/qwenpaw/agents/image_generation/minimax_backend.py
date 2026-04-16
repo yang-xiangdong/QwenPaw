@@ -61,8 +61,18 @@ class MiniMaxImageBackend(ImageGenerationBackend):
                 pending: list[str] = []
                 for url in ready_urls:
                     try:
-                        response = await client.get(url)
-                        if response.status_code >= 400:
+                        response = await client.get(
+                            url,
+                            headers={"Range": "bytes=0-0"},
+                        )
+                        content_type = response.headers.get(
+                            "Content-Type",
+                            "",
+                        ).lower()
+                        if (
+                            response.status_code >= 400
+                            or not content_type.startswith("image/")
+                        ):
                             pending.append(url)
                     except httpx.HTTPError:
                         pending.append(url)
