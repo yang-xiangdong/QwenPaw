@@ -81,27 +81,29 @@ class MiniMaxImageBackend(ImageGenerationBackend):
             data = response.json()
 
         response_data = data.get("data", {})
-        image_payloads: list[str] = []
+        image_urls: list[str] = []
+        base64_images: list[str] = []
         if request.response_format == "base64":
             image_base64 = response_data.get("image_base64", [])
             if isinstance(image_base64, list):
-                image_payloads = [
-                    f"data:image/jpeg;base64,{item}"
+                base64_images = [
+                    item
                     for item in image_base64
                     if isinstance(item, str) and item
                 ]
         else:
-            image_urls = response_data.get("image_urls", [])
-            if isinstance(image_urls, list):
-                image_payloads = [
-                    str(url) for url in image_urls if isinstance(url, str)
+            response_urls = response_data.get("image_urls", [])
+            if isinstance(response_urls, list):
+                image_urls = [
+                    str(url) for url in response_urls if isinstance(url, str)
                 ]
 
         return ImageGenerationResult(
             provider_id=self.provider.id,
             backend_name=self.name,
             model=payload["model"],
-            urls=image_payloads,
+            urls=image_urls,
+            base64_images=base64_images,
             revised_prompt=str(
                 response_data.get("revised_prompt", ""),
             ),

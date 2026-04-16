@@ -27,6 +27,7 @@ class ImageGenerationResult:
     backend_name: str
     model: str
     urls: list[str] = field(default_factory=list)
+    base64_images: list[str] = field(default_factory=list)
     revised_prompt: str = ""
     raw_response: dict[str, Any] = field(default_factory=dict)
 
