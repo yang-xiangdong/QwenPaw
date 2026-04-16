@@ -10,7 +10,7 @@ from shared import (
     load_payload,
     mean_brightness,
     parse_region,
-    split_font_candidates,
+    preferred_font_candidates,
 )
 
 
@@ -20,7 +20,8 @@ def main() -> None:
     text = str(payload.get("text") or "")
     text_kind = str(payload.get("text_kind") or "title").lower()
     region_value = payload.get("region") or ""
-    font_candidates = split_font_candidates(
+    font_candidates = preferred_font_candidates(
+        text_kind,
         str(payload.get("font_candidates") or ""),
     )
     min_font_size = int(payload.get("min_font_size") or 18)

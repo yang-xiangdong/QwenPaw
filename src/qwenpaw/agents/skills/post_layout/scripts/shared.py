@@ -16,10 +16,15 @@ DEFAULT_FONT_CANDIDATES = [
     "C:/Windows/Fonts/msyhbd.ttc",
     "C:/Windows/Fonts/simhei.ttf",
     "C:/Windows/Fonts/simsun.ttc",
+    "/home/yxd/.local/share/fonts/SmileySans-Oblique.ttf",
+    "/home/yxd/.local/share/fonts/LXGWWenKai-Regular.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
     "/System/Library/Fonts/PingFang.ttc",
     "/System/Library/Fonts/STHeiti Light.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
 ]
 
 
@@ -77,6 +82,43 @@ def split_font_candidates(font_candidates: str) -> list[str]:
     ]
     merged: list[str] = []
     for candidate in custom + DEFAULT_FONT_CANDIDATES:
+        if candidate not in merged:
+            merged.append(candidate)
+    return merged
+
+
+def preferred_font_candidates(
+    text_kind: str,
+    font_candidates: str,
+) -> list[str]:
+    custom = [
+        item.strip()
+        for item in (font_candidates or "").split(",")
+        if item.strip()
+    ]
+    kind = (text_kind or "body").lower()
+    if kind == "title":
+        preferred = [
+            "/home/yxd/.local/share/fonts/SmileySans-Oblique.ttf",
+            "/home/yxd/.local/share/fonts/LXGWWenKai-Regular.ttf",
+            "C:/Windows/Fonts/msyhbd.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+        ]
+    else:
+        preferred = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simsun.ttc",
+            "/home/yxd/.local/share/fonts/LXGWWenKai-Regular.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+            "/home/yxd/.local/share/fonts/SmileySans-Oblique.ttf",
+        ]
+
+    merged: list[str] = []
+    for candidate in custom + preferred + DEFAULT_FONT_CANDIDATES:
         if candidate not in merged:
             merged.append(candidate)
     return merged

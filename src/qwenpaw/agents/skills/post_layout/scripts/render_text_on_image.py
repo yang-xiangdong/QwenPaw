@@ -10,8 +10,8 @@ from shared import (
     emit_json,
     load_payload,
     parse_region,
+    preferred_font_candidates,
     resolve_font,
-    split_font_candidates,
 )
 
 
@@ -23,7 +23,8 @@ def main() -> None:
     text_kind = str(payload.get("text_kind") or "body").lower()
     region_value = payload.get("region") or ""
     font_color = str(payload.get("font_color") or "").strip() or "#FFFFFF"
-    font_candidates = split_font_candidates(
+    font_candidates = preferred_font_candidates(
+        text_kind,
         str(payload.get("font_candidates") or ""),
     )
     requested_font_size = int(payload.get("font_size") or 0)

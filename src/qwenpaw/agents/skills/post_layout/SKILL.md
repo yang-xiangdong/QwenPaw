@@ -51,7 +51,10 @@ If `region` is omitted, the scripts use these defaults:
 
 ## Font Candidates
 
-You can pass a comma-separated `font_candidates` string. If omitted, the script uses a built-in fallback list of common fonts.
+You can pass a comma-separated `font_candidates` string. If omitted, the script uses built-in defaults with fallback:
+
+- Title: prefers `Smiley Sans`, then `LXGW WenKai`, then bold CJK fallbacks
+- Body: prefers `Noto Sans CJK`, then common CJK fallbacks
 
 ## Output
 
